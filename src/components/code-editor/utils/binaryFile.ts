@@ -1,4 +1,8 @@
-// Binary file extensions (images are handled by ImageViewer, not here)
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'];
+
+// Binary file extensions. Image extensions live in IMAGE_EXTENSIONS so the
+// editor can render them as pictures instead of falling back to the
+// "binary file" placeholder.
 const BINARY_EXTENSIONS = [
   // Archives
   'zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz',
@@ -16,7 +20,8 @@ const BINARY_EXTENSIONS = [
   'bin', 'dat', 'iso', 'img', 'class', 'jar', 'war', 'pyc', 'pyo'
 ];
 
-export const isBinaryFile = (filename: string): boolean => {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  return BINARY_EXTENSIONS.includes(ext ?? '');
-};
+const getExtension = (filename: string): string => filename.split('.').pop()?.toLowerCase() ?? '';
+
+export const isBinaryFile = (filename: string): boolean => BINARY_EXTENSIONS.includes(getExtension(filename));
+
+export const isImageFile = (filename: string): boolean => IMAGE_EXTENSIONS.includes(getExtension(filename));

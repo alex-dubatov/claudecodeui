@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../utils/api';
 import type { CodeEditorFile } from '../types/types';
-import { isBinaryFile } from '../utils/binaryFile';
+import { isBinaryFile, isImageFile } from '../utils/binaryFile';
 
 type UseCodeEditorDocumentParams = {
   file: CodeEditorFile;
@@ -23,6 +23,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isBinary, setIsBinary] = useState(false);
+  const [isImage, setIsImage] = useState(false);
   // `fileProjectId` is the DB primary key passed down from the editor sidebar;
   // the fallback to `projectPath` preserves older callers that didn't yet
   // propagate the identifier.
@@ -37,8 +38,14 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       try {
         setLoading(true);
         setIsBinary(false);
+        setIsImage(false);
 
-        // Check if file is binary by extension
+        if (isImageFile(file.name)) {
+          setIsImage(true);
+          setLoading(false);
+          return;
+        }
+
         if (isBinaryFile(file.name)) {
           setIsBinary(true);
           setLoading(false);
@@ -134,6 +141,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     saveSuccess,
     saveError,
     isBinary,
+    isImage,
     handleSave,
     handleDownload,
   };

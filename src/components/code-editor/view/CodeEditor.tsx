@@ -16,6 +16,7 @@ import CodeEditorHeader from './subcomponents/CodeEditorHeader';
 import CodeEditorLoadingState from './subcomponents/CodeEditorLoadingState';
 import CodeEditorSurface from './subcomponents/CodeEditorSurface';
 import CodeEditorBinaryFile from './subcomponents/CodeEditorBinaryFile';
+import CodeEditorImageFile from './subcomponents/CodeEditorImageFile';
 
 type CodeEditorProps = {
   file: CodeEditorFile;
@@ -58,6 +59,7 @@ export default function CodeEditor({
     saveSuccess,
     saveError,
     isBinary,
+    isImage,
     handleSave,
     handleDownload,
   } = useCodeEditorDocument({
@@ -158,6 +160,24 @@ export default function CodeEditor({
         isDarkMode={isDarkMode}
         isSidebar={isSidebar}
         loadingText={t('loading', { fileName: file.name })}
+      />
+    );
+  }
+
+  if (isImage) {
+    return (
+      <CodeEditorImageFile
+        file={file}
+        projectPath={projectPath}
+        isSidebar={isSidebar}
+        isFullscreen={isFullscreen}
+        onClose={onClose}
+        onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
+        loadingLabel={t('imageFile.loading', 'Loading image...')}
+        errorLabel={t('imageFile.error', 'Unable to load image')}
+        closeLabel={t('actions.close')}
+        fullscreenLabel={t('actions.fullscreen')}
+        exitFullscreenLabel={t('actions.exitFullscreen')}
       />
     );
   }
