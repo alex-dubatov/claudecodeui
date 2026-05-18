@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -8,10 +8,13 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
+import { authenticatedFetch } from '../../../../utils/api';
 
 type MarkdownProps = {
   children: React.ReactNode;
   className?: string;
+  projectId?: string;
+  onFileOpen?: (filePath: string) => void;
 };
 
 type CodeBlockProps = {
@@ -116,7 +119,100 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   );
 };
 
-const markdownComponents = {
+type MarkdownImageProps = {
+  src?: string;
+  alt?: string;
+  title?: string;
+  projectId?: string;
+  onFileOpen?: (filePath: string) => void;
+};
+
+// True for URLs the browser can fetch on its own (http(s)/data/blob/protocol-relative).
+// Everything else is treated as a project-relative path that needs an authenticated fetch.
+const isExternalImageSrc = (src: string) => /^(https?:|data:|blob:|\/\/)/i.test(src);
+
+const MarkdownImage = ({ src, alt, title, projectId, onFileOpen }: MarkdownImageProps) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const needsAuthFetch = Boolean(src && projectId && !isExternalImageSrc(src));
+
+  useEffect(() => {
+    if (!needsAuthFetch || !src || !projectId) return;
+
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+    setBlobUrl(null);
+    setFailed(false);
+
+    (async () => {
+      try {
+        const url = `/api/projects/${projectId}/files/content?path=${encodeURIComponent(src)}`;
+        const response = await authenticatedFetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        setFailed(true);
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [needsAuthFetch, src, projectId]);
+
+  if (!src) return null;
+
+  const altText = alt || title || '';
+  const clickable = Boolean(onFileOpen && src && !isExternalImageSrc(src));
+  const handleClick = clickable && src ? () => onFileOpen?.(src) : undefined;
+  const imgClass = `my-2 max-h-96 w-auto max-w-full rounded-md border border-gray-200 object-contain dark:border-gray-700 ${
+    clickable ? 'cursor-zoom-in' : ''
+  }`;
+
+  if (failed) {
+    return (
+      <span className="my-2 inline-flex flex-col gap-0.5 rounded-md border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 dark:border-gray-600 dark:text-gray-400">
+        <span>{altText || 'image'}</span>
+        <span className="break-all font-mono">{src}</span>
+      </span>
+    );
+  }
+
+  if (needsAuthFetch) {
+    if (!blobUrl) {
+      return (
+        <span className="my-2 inline-block h-24 w-48 animate-pulse rounded-md bg-gray-100 align-middle dark:bg-gray-800" />
+      );
+    }
+    return (
+      <img
+        src={blobUrl}
+        alt={altText}
+        title={title}
+        className={imgClass}
+        onClick={handleClick}
+      />
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={altText}
+      title={title}
+      className={imgClass}
+      onClick={handleClick}
+      onError={() => setFailed(true)}
+    />
+  );
+};
+
+const buildMarkdownComponents = (projectId?: string, onFileOpen?: (filePath: string) => void) => ({
   code: CodeBlock,
   blockquote: ({ children }: { children?: React.ReactNode }) => (
     <blockquote className="my-2 border-l-4 border-gray-300 pl-4 italic text-gray-600 dark:border-gray-600 dark:text-gray-400">
@@ -127,6 +223,9 @@ const markdownComponents = {
     <a href={href} className="text-blue-600 hover:underline dark:text-blue-400" target="_blank" rel="noopener noreferrer">
       {children}
     </a>
+  ),
+  img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
+    <MarkdownImage src={src} alt={alt} title={title} projectId={projectId} onFileOpen={onFileOpen} />
   ),
   p: ({ children }: { children?: React.ReactNode }) => <div className="mb-2 last:mb-0">{children}</div>,
   table: ({ children }: { children?: React.ReactNode }) => (
@@ -141,12 +240,16 @@ const markdownComponents = {
   td: ({ children }: { children?: React.ReactNode }) => (
     <td className="border border-gray-200 px-3 py-2 align-top text-sm dark:border-gray-700">{children}</td>
   ),
-};
+});
 
-export function Markdown({ children, className }: MarkdownProps) {
+export function Markdown({ children, className, projectId, onFileOpen }: MarkdownProps) {
   const content = normalizeInlineCodeFences(String(children ?? ''));
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
+  const markdownComponents = useMemo(
+    () => buildMarkdownComponents(projectId, onFileOpen),
+    [projectId, onFileOpen],
+  );
 
   return (
     <div className={className}>
