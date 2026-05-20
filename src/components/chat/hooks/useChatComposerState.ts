@@ -82,6 +82,16 @@ const createFakeSubmitEvent = () => {
   return { preventDefault: () => undefined } as unknown as FormEvent<HTMLFormElement>;
 };
 
+const buildDraftKey = (
+  projectId: string | undefined,
+  sessionId: string | null | undefined,
+): string | null => {
+  if (!projectId) {
+    return null;
+  }
+  return `draft_input_${projectId}_${sessionId ?? '__new__'}`;
+};
+
 const getNotificationSessionSummary = (
   selectedSession: ProjectSession | null,
   fallbackInput: string,
@@ -132,11 +142,17 @@ export function useChatComposerState({
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
+  const selectedProjectId = selectedProject?.projectId;
+  const selectedSessionId = selectedSession?.id ?? null;
+
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
-      // Draft inputs are keyed by the DB projectId so per-project drafts
-      // survive display-name changes.
-      return safeLocalStorage.getItem(`draft_input_${selectedProject.projectId}`) || '';
+      // Drafts are keyed by DB projectId + sessionId so each chat keeps its own,
+      // with a "__new__" bucket for the not-yet-created session.
+      const key = buildDraftKey(selectedProject.projectId, selectedSession?.id ?? null);
+      if (key) {
+        return safeLocalStorage.getItem(key) || '';
+      }
     }
     return '';
   });
@@ -152,7 +168,9 @@ export function useChatComposerState({
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
-  const selectedProjectId = selectedProject?.projectId;
+  const draftKeyRef = useRef<string | null>(
+    buildDraftKey(selectedProjectId, selectedSessionId),
+  );
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -675,7 +693,9 @@ export function useChatComposerState({
         textareaRef.current.style.height = 'auto';
       }
 
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+      if (draftKeyRef.current) {
+        safeLocalStorage.removeItem(draftKeyRef.current);
+      }
     },
     [
       selectedSession,
@@ -715,27 +735,44 @@ export function useChatComposerState({
   }, [input]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    const newKey = buildDraftKey(selectedProjectId, selectedSessionId);
+    const oldKey = draftKeyRef.current;
+    if (oldKey === newKey) {
       return;
     }
-    const savedInput = safeLocalStorage.getItem(`draft_input_${selectedProjectId}`) || '';
+
+    // Persist the in-progress draft under the previous session's key before swapping,
+    // so leaving a chat mid-typing doesn't lose what was written.
+    if (oldKey) {
+      const previousValue = inputValueRef.current;
+      if (previousValue) {
+        safeLocalStorage.setItem(oldKey, previousValue);
+      } else {
+        safeLocalStorage.removeItem(oldKey);
+      }
+    }
+
+    draftKeyRef.current = newKey;
+
+    const savedInput = newKey ? safeLocalStorage.getItem(newKey) || '' : '';
     setInput((previous) => {
       const next = previous === savedInput ? previous : savedInput;
       inputValueRef.current = next;
       return next;
     });
-  }, [selectedProjectId]);
+  }, [selectedProjectId, selectedSessionId]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    const key = draftKeyRef.current;
+    if (!key) {
       return;
     }
     if (input !== '') {
-      safeLocalStorage.setItem(`draft_input_${selectedProjectId}`, input);
+      safeLocalStorage.setItem(key, input);
     } else {
-      safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
+      safeLocalStorage.removeItem(key);
     }
-  }, [input, selectedProjectId]);
+  }, [input]);
 
   useEffect(() => {
     if (!textareaRef.current) {
